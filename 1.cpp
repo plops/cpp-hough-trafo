@@ -5,18 +5,17 @@
 #include <math.h>
 using namespace std;
 
-
 enum{
-  NX=512,
+    NX=512,
     NY=NX,
     NTHETA=120,
-    NRHO=100 // sqrt(2)*max(NX,NY); 
+    NRHO=300
     };
 unsigned char buf[NX*NY],hough_buf[NTHETA*NRHO];
 unsigned int hough_hist[NTHETA*NRHO]; 
 
 const double 
-theta_min=-M_PI,
+theta_min=0,//-M_PI,
   theta_max=M_PI,
   rho_max=M_SQRT2*NX,
   rho_min=-rho_max;
@@ -44,19 +43,23 @@ theta(int i)
   return stretch(i,NTHETA,theta_min,theta_max);
 }
 
+double cos_tab[NTHETA],sin_tab[NTHETA];
+void init_hough()
+{
+  for(int i=0;i<NTHETA;i++){
+    double t=theta(i);
+    cos_tab[i]=cos(t);
+    sin_tab[i]=sin(t);
+  }
+}
+
 void
 insert_hough(int x,int y,unsigned int*hist)
 {
+  const static double sfrho=NRHO*1./(rho_max-rho_min);
   for(int i=0;i<NTHETA;i++){
-    double 
-      t=theta(i),
-      c=cos(t),
-      s=sin(t),
-      rho=x*c+y*s;
-    // scale rho from -min..max to 0..1
-    double rt=(rho-rho_min)/(rho_max-rho_min);
-    //    cout << i << " " << rt*NRHO << endl;
-    hist[i+NTHETA*((int)(rt*NRHO))]++;
+    double rho=x*cos_tab[i]+y*sin_tab[i];
+    hist[i+NTHETA*((int)((rho-rho_min)*sfrho))]++;
   }
 }
 
@@ -65,6 +68,7 @@ main()
 {
   readim("grid25.pgm",buf);
   int l=0;
+  init_hough();
   for(int i=0;i<NX;i++)
     for(int j=0;j<NY;j++){
       if(buf[l++]==8)
