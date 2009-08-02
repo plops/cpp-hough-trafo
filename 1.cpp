@@ -10,8 +10,8 @@ using namespace std;
 enum{
     NX=512,
     NY=NX,
-    NTHETA=360,
-    NRHO=380
+    NTHETA=1360,
+    NRHO=1380
     };
 unsigned char buf[NX*NY],hough_buf[NTHETA*NRHO];
 unsigned int hough_hist[NTHETA*NRHO]; 
@@ -110,7 +110,7 @@ calc_xy(vector<int>x,vector<int>y)
 
 class Error{};
 // y=a+b*x  -> find a and b
-void
+double
 fit_line(vector<int>x,vector<int>y,double&a,double&b)
 {
   if(x.size()!=y.size() || x.size()==0)
@@ -135,7 +135,9 @@ fit_line(vector<int>x,vector<int>y,double&a,double&b)
   cout<<"b="<<b<<endl;
   a=ybar-b*xbar;
   cout<<"a="<<a<<endl;
-  cout<<"correlation coeff r^2="<<ssxy*ssxy/(ssxx*ssyy)<<" proportion of ssyy which is accounted for by the refgression"<<endl;
+  double r2=ssxy*ssxy/(ssxx*ssyy);
+  cout<<"correlation coeff r^2="<<r2<<" proportion of ssyy which is accounted for by the refgression"<<endl;
+  return r2;
 }
 
 // x=a+b*y
@@ -164,10 +166,61 @@ draw_line_hori(double a,double b,int nx,int ny)
     double y=a+b*i;
     fprintf(f,"%d %g\n",i,y);
     int iy=(int)y;
-    if(iy>=0 && iy<ny)
-      buf[i+nx*iy]=i; 
+    if(iy>=3 && iy<ny-3){
+      buf[i+nx*(iy-3)]=255; 
+      buf[i+nx*(iy+3)]=255; 
+    }
   }  
   fclose(f);
+}
+
+unsigned int
+aref(unsigned int*h,int nx,int ny,int i,int j)
+{
+  if(i>=0 && i<nx && j>=0 && j<ny)
+    return h[i+nx*j];
+  return 0;
+}
+
+int
+ismax_p(unsigned int*h,int nx,int ny,int i,int j)
+{
+  double 
+    q=aref(h,nx,ny,i,j);
+  if(q>aref(h,nx,ny,i+1,j) && 
+     q>aref(h,nx,ny,i-1,j) &&
+     q>aref(h,nx,ny,i+1,j+1) && 
+     q>aref(h,nx,ny,i-1,j-1) &&
+     q>aref(h,nx,ny,i+1,j-1) && 
+     q>aref(h,nx,ny,i-1,j+1) &&
+     q>aref(h,nx,ny,i,j+3) &&
+     q>aref(h,nx,ny,i,j-3) &&
+     q>aref(h,nx,ny,i+3,j) &&
+     q>aref(h,nx,ny,i-3,j) &&
+     q>aref(h,nx,ny,i,j+1) &&     
+     q>aref(h,nx,ny,i,j-1))
+    return 1;
+  return 0;
+}
+
+
+// collect points that are in the bin [maxtheta,maxrho] of the hough transform
+void
+extract_line_points(int maxtheta,int maxrho,vector<int>&x,vector<int>&y)
+{
+  int l=0;
+  const static double sfrho=NRHO*1./(rho_max-rho_min);
+  for(int j=0;j<NY;j++)
+    for(int i=0;i<NX;i++){
+      if(buf[l++]<80){
+	double rho=i*cos_tab[maxtheta]+j*sin_tab[maxtheta];
+	int irho=(int)((rho-rho_min)*sfrho);
+	if(maxrho==irho){
+	  x.push_back(i);
+	  y.push_back(j);
+	}
+      }
+    }
 }
 
 
@@ -185,7 +238,9 @@ main()
 	insert_hough(i,j,hough_hist);
     }
   
-  // find the most significant line (approximate)
+
+  // find the maximum in the hough transform image, most significant
+  // line
   int max=hough_hist[0],maxtheta=0,maxrho=0;
   l=0;
   for(int j=0;j<NRHO;j++)
@@ -198,49 +253,68 @@ main()
       }
     }
 
-
-  cout<<"max "<<max<<endl;
-  cout << "maxtheta_idx=" << maxtheta << " maxrho_idx="<<maxrho << endl
-       << "maxtheta[degree]=" << theta(maxtheta)*180/M_PI << " maxrho[pixel]="<<rho(maxrho)<< endl;
-  // traverse all the points again, collect those that are on the
-  // significant line
-
-  vector<int> x,y;
-  l=0;
-  const static double sfrho=NRHO*1./(rho_max-rho_min);
-  FILE*f=fopen("line.dat","w");
-  for(int j=0;j<NY;j++)
-    for(int i=0;i<NX;i++){
-      if(buf[l++]<80){
-	double rho=i*cos_tab[maxtheta]+j*sin_tab[maxtheta];
-	int irho=(int)((rho-rho_min)*sfrho);
-	if(maxrho==irho){
-	  fprintf(f,"%d %d\n",i,j);
-	  x.push_back(i);
-	  y.push_back(j);
-	}
+  // calculate a histogram over local maxima in the hough transform image
+  enum { HISTN=100 };
+  int histogram[HISTN];
+  memset(histogram,0,sizeof(histogram));
+  vector<pair<int,int> > local_max;
+  for(int j=0;j<NRHO;j++)
+    for(int i=0;i<NTHETA;i++){
+      if(ismax_p(hough_hist,NTHETA,NRHO,i,j)){
+	// use max+1 so that the highest value isn't lost
+	double v=hough_hist[i+NTHETA*j]*HISTN*1./(max+1);
+	histogram[(int)v]++;
+	if(v>=60)
+	  local_max.push_back(pair<int,int>(i,j));
       }
     }
+    
+  FILE*f=fopen("hough-histogram.dat","w");
+  for(int i=0;i<HISTN;i++)
+    fprintf(f,"%d %d\n",i,histogram[i]);
   fclose(f);
+
+
+  
   
 
-  // draw all the collected points into original image
-  for(unsigned int i=0;i<x.size();i++){
-    buf[x[i]+NX*y[i]]=230;
-  }
 
 
-  double a,b;
-  if(fabs(theta(maxtheta))<45*M_PI/180){ 
-    cout << "vertical line" << endl;
-    fit_line(y,x,a,b);
-    draw_line_vert(a,b,NX,NY);
-  }else{
-    cout << "horizontal line" << endl;
-    fit_line(x,y,a,b);
-    draw_line_hori(a,b,NX,NY);
-  }
+  for(unsigned int k=0;k<local_max.size();k++){
+    int 
+      maxtheta=local_max[k].first,
+      maxrho=local_max[k].second;
+    
+    cout << "maxtheta_idx=" << maxtheta << " maxrho_idx="<<maxrho << endl
+	 << "maxtheta[degree]=" << theta(maxtheta)*180/M_PI << " maxrho[pixel]="<<rho(maxrho)<< endl;
   
+    
+    // collect points from image
+    vector<int> x,y;
+    extract_line_points(maxtheta,maxrho,x,y);
+    
+    double a,b,r2;
+    if(fabs(theta(maxtheta))<45*M_PI/180){ 
+      cout << "vertical line" << endl;
+      r2=fit_line(y,x,a,b);
+      if(r2>0.7)
+	draw_line_vert(a,b,NX,NY);
+    }else{
+      cout << "horizontal line" << endl;
+      r2=fit_line(x,y,a,b);
+      if(r2>0.5)
+	draw_line_hori(a,b,NX,NY);
+    }
+    
+    
+    // if the fit is good, draw all the collected points into original
+    // image
+    if(r2>0.5)
+      for(unsigned int i=0;i<x.size();i++){
+	buf[x[i]+NX*y[i]]=230;
+      }
+    
+  }
 
 
   f=fopen("grid-augment.pgm","w");
@@ -256,10 +330,16 @@ main()
     //    unsigned char c=(unsigned char)v==0?0:log(v)*255./log(max);
     hough_buf[i]=c;
   }
-  for(int i=-6;i<=6;i++)
-    hough_buf[maxtheta+i+NTHETA*maxrho]=255;
-  for(int i=-6;i<=6;i++)
-    hough_buf[maxtheta+NTHETA*(maxrho+i)]=255;
+
+  for(unsigned int k=0;k<local_max.size();k++){
+    int 
+      maxtheta=local_max[k].first,
+      maxrho=local_max[k].second;
+    for(int i=-6;i<=6;i++)
+      hough_buf[maxtheta+i+NTHETA*maxrho]=255;
+    for(int i=-6;i<=6;i++)
+      hough_buf[maxtheta+NTHETA*(maxrho+i)]=255;
+  }
   f=fopen("hough.pgm","w");
   fprintf(f,"P5\n%d %d\n255\n",NTHETA,NRHO);
   fwrite(hough_buf,NTHETA,NRHO,f);
