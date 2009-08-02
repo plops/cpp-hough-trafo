@@ -1,0 +1,6 @@
+echo '(require :asdf)(require :cells-gtk)
+(sb-ext:gc :full t)
+(sb-ext:save-lisp-and-die "/dev/shm/sbcl-opengl.core")' >> /dev/shm/o.lisp
+sbcl --load /dev/shm/o.lisp
+./sun
+
