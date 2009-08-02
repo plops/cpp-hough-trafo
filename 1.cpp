@@ -10,8 +10,8 @@ using namespace std;
 enum{
     NX=512,
     NY=NX,
-    NTHETA=120,
-    NRHO=100
+    NTHETA=360,
+    NRHO=380
     };
 unsigned char buf[NX*NY],hough_buf[NTHETA*NRHO];
 unsigned int hough_hist[NTHETA*NRHO]; 
@@ -122,7 +122,7 @@ fit_line(vector<int>x,vector<int>y,double&a,double&b)
     xy=calc_xy(x,y);
   double
     ssxx=x2-n*xbar*xbar,
-    //ssyy=y2-n*ybar*ybar,
+    ssyy=y2-n*ybar*ybar,
     ssxy=xy-n*xbar*ybar;
   cout << "xbar=" << xbar << " ybar="
        << ybar << " x2="
@@ -135,7 +135,41 @@ fit_line(vector<int>x,vector<int>y,double&a,double&b)
   cout<<"b="<<b<<endl;
   a=ybar-b*xbar;
   cout<<"a="<<a<<endl;
+  cout<<"correlation coeff r^2="<<ssxy*ssxy/(ssxx*ssyy)<<" proportion of ssyy which is accounted for by the refgression"<<endl;
 }
+
+// x=a+b*y
+void
+draw_line_vert(double a,double b,int nx,int ny)
+{
+  FILE*f=fopen("fit-line.dat","w");
+  for(int i=0;i<ny;i++){ 
+    double x=a+b*i;
+    fprintf(f,"%g %d\n",x,i);
+    int ix=(int)x;
+    if(ix>=3 && ix<NX-3){
+      buf[(ix-3)+nx*i]=255;
+      buf[(ix+3)+nx*i]=255;
+    } 
+  }  
+  fclose(f);
+}
+
+// y=a+b*x
+void
+draw_line_hori(double a,double b,int nx,int ny)
+{
+  FILE*f=fopen("fit-line.dat","w");
+  for(int i=0;i<nx;i++){ 
+    double y=a+b*i;
+    fprintf(f,"%d %g\n",i,y);
+    int iy=(int)y;
+    if(iy>=0 && iy<ny)
+      buf[i+nx*iy]=i; 
+  }  
+  fclose(f);
+}
+
 
 int
 main()
@@ -188,20 +222,26 @@ main()
       }
     }
   fclose(f);
+  
 
-  // TODO swap x and y if line is horizontal
+  // draw all the collected points into original image
+  for(unsigned int i=0;i<x.size();i++){
+    buf[x[i]+NX*y[i]]=230;
+  }
+
+
   double a,b;
-  fit_line(y,x,a,b);
- 
-  for(int i=0;i<x.size();i++){
-    buf[x[i]+NX*y[i]]=120;
+  if(fabs(theta(maxtheta))<45*M_PI/180){ 
+    cout << "vertical line" << endl;
+    fit_line(y,x,a,b);
+    draw_line_vert(a,b,NX,NY);
+  }else{
+    cout << "horizontal line" << endl;
+    fit_line(x,y,a,b);
+    draw_line_hori(a,b,NX,NY);
   }
+  
 
-  for(int i=0;i<NX;i++){
-    int y=(int) (a+b*i);
-    if(y>=0 && y<NY)
-      buf[y+NX*i]=255; 
-  }
 
   f=fopen("grid-augment.pgm","w");
   fprintf(f,"P5\n%d %d\n255\n",NX,NY);
